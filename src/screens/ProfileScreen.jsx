@@ -52,11 +52,10 @@ export default function ProfileScreen() {
         .eq('driver_id', authUser.id)
         .gt('departure_at', new Date().toISOString())
         .order('departure_at', { ascending: true });
-      const futureTrips = (tripsData || []).map(trip => ({
+      const futureTripsRaw = (tripsData || []).map(trip => ({
         ...trip,
         driver_name: trip.driver?.full_name || 'Conducteur inconnu',
       }));
-      setMyTrips(futureTrips);
       // Charger les trajets proposés PASSÉS
       const { data: pastTripsData } = await supabase
         .from('trips')
@@ -64,11 +63,10 @@ export default function ProfileScreen() {
         .eq('driver_id', authUser.id)
         .lte('departure_at', new Date().toISOString())
         .order('departure_at', { ascending: false });
-      const pastTrips = (pastTripsData || []).map(trip => ({
+      const pastTripsRaw = (pastTripsData || []).map(trip => ({
         ...trip,
         driver_name: trip.driver?.full_name || 'Conducteur inconnu',
       }));
-       setMyPastTrips(pastTrips);
        // Calculer la note moyenne basée sur les trajets passés proposés
        if (pastTripsData && pastTripsData.length > 0) {
          const tripIds = pastTripsData.map(trip => trip.id);
@@ -94,13 +92,47 @@ export default function ProfileScreen() {
         .eq('passenger_id', authUser.id)
         .eq('status', 'confirmed')
         .order('created_at', { ascending: false });
-      const futureReservations = (bookingsData || [])
+
+      const reservationTripsRaw = (bookingsData || [])
         .map(booking => ({
           ...booking.trip,
           driver_name: booking.trip?.driver?.full_name || 'Conducteur inconnu',
           booking_id: booking.id,
-        }))
-        .filter(trip => trip && trip.id && !isPastTrip(trip.departure_at));
+        }));
+
+      const allTripIds = [
+        ...futureTripsRaw.map((trip) => trip.id),
+        ...pastTripsRaw.map((trip) => trip.id),
+        ...reservationTripsRaw.filter((trip) => trip && trip.id).map((trip) => trip.id),
+      ];
+
+      let confirmedByTripId = {};
+      if (allTripIds.length > 0) {
+        const { data: bookingsCountData, error: bookingsCountError } = await supabase
+          .from('bookings')
+          .select('trip_id')
+          .in('trip_id', allTripIds)
+          .eq('status', 'confirmed');
+
+        if (!bookingsCountError) {
+          confirmedByTripId = (bookingsCountData || []).reduce((acc, booking) => {
+            acc[booking.trip_id] = (acc[booking.trip_id] || 0) + 1;
+            return acc;
+          }, {});
+        }
+      }
+
+      const withAvailableSeats = (trip) => ({
+        ...trip,
+        available_seats: Math.max((trip?.seats || 0) - (confirmedByTripId[trip?.id] || 0), 0),
+      });
+
+      setMyTrips(futureTripsRaw.map(withAvailableSeats));
+      setMyPastTrips(pastTripsRaw.map(withAvailableSeats));
+
+      const futureReservations = reservationTripsRaw
+        .filter(trip => trip && trip.id && !isPastTrip(trip.departure_at))
+        .map(withAvailableSeats);
       setMyReservations(futureReservations);
     } catch (err) {
       console.error('Profile loading error:', err);

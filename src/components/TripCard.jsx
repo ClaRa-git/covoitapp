@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
 function TripCard({ trip, onPress }) {
   const date = new Date(trip.departure_at);
+  const seatsToDisplay = trip.available_seats ?? trip.seats;
+  const totalSeats = trip.seats ?? seatsToDisplay;
 
   const formattedDate =
     date.toLocaleDateString('fr-FR', {
@@ -36,7 +38,11 @@ function TripCard({ trip, onPress }) {
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.seats}>{trip.seats} places</Text>
+        <Text style={[styles.seats, seatsToDisplay <= 0 && styles.seatsFull]}>
+          {seatsToDisplay <= 0
+            ? `Complet (0/${totalSeats})`
+            : `Places dispo: ${seatsToDisplay}/${totalSeats}`}
+        </Text>
         <Text style={[
           styles.price,
           {color: getPriceColor(trip.price)}
@@ -80,6 +86,10 @@ const styles = StyleSheet.create({
   seats: {
     fontSize: 14,
     color: '#666',
+  },
+  seatsFull: {
+    color: '#e74c3c',
+    fontWeight: '600',
   },
   price: {
     fontSize: 14,

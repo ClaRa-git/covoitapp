@@ -135,9 +135,28 @@ export default function MapScreen() {
 
       if (error) throw error;
 
+      const tripIds = (data || []).map((trip) => trip.id);
+      let confirmedByTripId = {};
+
+      if (tripIds.length > 0) {
+        const { data: bookingsData, error: bookingsError } = await supabase
+          .from('bookings')
+          .select('trip_id')
+          .in('trip_id', tripIds)
+          .eq('status', 'confirmed');
+
+        if (bookingsError) throw bookingsError;
+
+        confirmedByTripId = (bookingsData || []).reduce((acc, booking) => {
+          acc[booking.trip_id] = (acc[booking.trip_id] || 0) + 1;
+          return acc;
+        }, {});
+      }
+
       const transformedData = (data || []).map(trip => ({
         ...trip,
         driver_name: trip.driver?.full_name || 'Conducteur inconnu',
+        available_seats: Math.max((trip.seats || 0) - (confirmedByTripId[trip.id] || 0), 0),
       }));
 
       setTrips(transformedData);

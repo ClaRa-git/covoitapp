@@ -46,9 +46,20 @@ export default function TripDetailScreen() {
 
       if (error) throw error;
 
+      const { count: confirmedCount, error: countError } = await supabase
+        .from('bookings')
+        .select('*', { count: 'exact', head: true })
+        .eq('trip_id', tripId)
+        .eq('status', 'confirmed');
+
+      if (countError) throw countError;
+
+      const availableSeats = Math.max((data.seats || 0) - (confirmedCount || 0), 0);
+
       const transformedTrip = {
         ...data,
         driver_name: data.driver?.full_name || 'Conducteur inconnu',
+        available_seats: availableSeats,
       };
 
       setTrip(transformedTrip);
@@ -174,22 +185,6 @@ export default function TripDetailScreen() {
 
       console.log('Statut changé en cancelled');
 
-      // Restaurer les places du trajet
-      const newSeats = trip.seats + 1;
-      console.log('Mise à jour des places:', { tripId, currentSeats: trip.seats, newSeats });
-
-      const { error: updateError, data: updateData } = await supabase
-        .from('trips')
-        .update({ seats: newSeats })
-        .eq('id', tripId);
-
-      console.log('Résultat mise à jour:', { updateError, updateData });
-
-      if (updateError) {
-        console.error('Erreur lors de la mise à jour:', updateError);
-        throw updateError;
-      }
-
       // Recharger le trajet et les données de réservation
       await loadTrip();
       await checkUserBooking();
@@ -230,8 +225,19 @@ export default function TripDetailScreen() {
         return;
       }
 
+      // Recalculer les places disponibles depuis les réservations confirmées
+      const { count: confirmedCount, error: countError } = await supabase
+        .from('bookings')
+        .select('*', { count: 'exact', head: true })
+        .eq('trip_id', tripId)
+        .eq('status', 'confirmed');
+
+      if (countError) throw countError;
+
+      const availableSeats = Math.max((trip.seats || 0) - (confirmedCount || 0), 0);
+
       // Vérifier les places disponibles
-      if (trip.seats <= 0) {
+      if (availableSeats <= 0) {
         Alert.alert('Erreur', 'Aucune place disponible pour ce trajet');
         return;
       }
@@ -252,12 +258,6 @@ export default function TripDetailScreen() {
       if (error) throw error;
 
       setBooking(data);
-
-      // Mettre à jour les places du trajet
-      await supabase
-        .from('trips')
-        .update({ seats: trip.seats - 1 })
-        .eq('id', tripId);
 
       // Recharger le trajet
       await loadTrip();
@@ -302,7 +302,8 @@ export default function TripDetailScreen() {
   });
 
   const isBooked = !!booking;
-  const seatsAvailable = trip.seats > 0;
+  const availableSeats = trip.available_seats ?? trip.seats;
+  const seatsAvailable = availableSeats > 0;
   const isOwnTrip = currentUser && trip.driver_id === currentUser.id;
   const isPastTrip = new Date(trip.departure_at) < new Date();
 
@@ -322,7 +323,7 @@ export default function TripDetailScreen() {
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Places disponibles</Text>
             <Text style={[styles.infoValue, !seatsAvailable && { color: '#e74c3c' }]}>
-              {trip.seats}
+              {`${availableSeats}/${trip.seats}`}
             </Text>
           </View>
           <View style={styles.infoItem}>

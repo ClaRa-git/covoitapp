@@ -41,9 +41,31 @@ export default function HomeScreen() {
 
       if (tripsError) throw tripsError;
 
+      const allTripIds = [
+        ...(tripsData || []).map((trip) => trip.id),
+      ];
+
+      let confirmedByTripId = {};
+
+      if (allTripIds.length > 0) {
+        const { data: bookingsCountData, error: bookingsCountError } = await supabase
+          .from('bookings')
+          .select('trip_id')
+          .in('trip_id', allTripIds)
+          .eq('status', 'confirmed');
+
+        if (bookingsCountError) throw bookingsCountError;
+
+        confirmedByTripId = (bookingsCountData || []).reduce((acc, booking) => {
+          acc[booking.trip_id] = (acc[booking.trip_id] || 0) + 1;
+          return acc;
+        }, {});
+      }
+
       const transformedTrips = (tripsData || []).map(trip => ({
         ...trip,
         driver_name: trip.driver?.full_name || 'Conducteur inconnu',
+        available_seats: Math.max((trip.seats || 0) - (confirmedByTripId[trip.id] || 0), 0),
       }));
 
       setAllTrips(transformedTrips);
@@ -65,6 +87,7 @@ export default function HomeScreen() {
               ...booking.trip,
               driver_name: booking.trip.driver?.full_name || 'Conducteur inconnu',
               booking_id: booking.id,
+              available_seats: Math.max((booking.trip?.seats || 0) - (confirmedByTripId[booking.trip?.id] || 0), 0),
             }))
             .filter(trip => trip && trip.id && !isPastTrip(trip.departure_at));
 
@@ -83,9 +106,27 @@ export default function HomeScreen() {
           .order('departure_at', { ascending: true });
 
         if (!myTripsError && myTripsData) {
+          const myTripIds = (myTripsData || []).map((trip) => trip.id);
+          if (myTripIds.length > 0) {
+            const { data: myBookingsCountData } = await supabase
+              .from('bookings')
+              .select('trip_id')
+              .in('trip_id', myTripIds)
+              .eq('status', 'confirmed');
+
+            confirmedByTripId = {
+              ...confirmedByTripId,
+              ...(myBookingsCountData || []).reduce((acc, booking) => {
+                acc[booking.trip_id] = (acc[booking.trip_id] || 0) + 1;
+                return acc;
+              }, {}),
+            };
+          }
+
           const proposedTrips = (myTripsData || []).map(trip => ({
             ...trip,
             driver_name: trip.driver?.full_name || 'Conducteur inconnu',
+            available_seats: Math.max((trip.seats || 0) - (confirmedByTripId[trip.id] || 0), 0),
           }));
 
           setMyProposedTrips(proposedTrips);
@@ -103,9 +144,27 @@ export default function HomeScreen() {
           .order('departure_at', { ascending: false });
 
         if (!pastTripsError && pastTripsData) {
+          const pastTripIds = (pastTripsData || []).map((trip) => trip.id);
+          if (pastTripIds.length > 0) {
+            const { data: pastBookingsCountData } = await supabase
+              .from('bookings')
+              .select('trip_id')
+              .in('trip_id', pastTripIds)
+              .eq('status', 'confirmed');
+
+            confirmedByTripId = {
+              ...confirmedByTripId,
+              ...(pastBookingsCountData || []).reduce((acc, booking) => {
+                acc[booking.trip_id] = (acc[booking.trip_id] || 0) + 1;
+                return acc;
+              }, {}),
+            };
+          }
+
           const pastTrips = (pastTripsData || []).map(trip => ({
             ...trip,
             driver_name: trip.driver?.full_name || 'Conducteur inconnu',
+            available_seats: Math.max((trip.seats || 0) - (confirmedByTripId[trip.id] || 0), 0),
           }));
 
           setMyPastTrips(pastTrips);
