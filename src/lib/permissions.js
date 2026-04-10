@@ -33,16 +33,23 @@ export async function requestGalleryPermission() {
 }
 
 export async function requestLocationPermission() {
-  if (Platform.OS !== 'android') return true;
-
-  const granted = await PermissionsAndroid.request(
-    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    {
-      title: 'CovoitApp — Accès à la localisation',
-      message: 'CovoitApp utilise votre position pour afficher les trajets proches.',
-      buttonNegative: 'Refuser',
-      buttonPositive: 'Autoriser',
+  if (Platform.OS === 'android') {
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'CovoitApp — Accès à la localisation',
+          message: 'CovoitApp utilise votre position pour afficher les trajets proches.',
+          buttonNegative: 'Refuser',
+          buttonPositive: 'Autoriser',
+        }
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    } catch (err) {
+      console.error('Erreur permission localisation:', err);
+      return false;
     }
-  );
-  return granted === PermissionsAndroid.RESULTS.GRANTED;
+  }
+  // Pour iOS, les permissions sont gérées via Info.plist
+  return true;
 }

@@ -5,6 +5,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import TripCard from '../components/TripCard';
 import Geolocation from '@react-native-community/geolocation';
+import { requestLocationPermission } from '../lib/permissions';
 
 const getMapHTML = (trips, userLocation) => `
 <!DOCTYPE html>
@@ -23,19 +24,27 @@ html, body, #map { width: 100%; height: 100%; }
 <div id='map'></div>
 <script>
 var userLocation = ${JSON.stringify(userLocation)};
+console.log("USER LOCATION IN WEBVIEW:", userLocation);
+
 var initialLat = userLocation ? userLocation.latitude : 46.603354;
 var initialLng = userLocation ? userLocation.longitude : 1.888334;
 var initialZoom = userLocation ? 10 : 6;
 
 var map = L.map('map').setView([initialLat, initialLng], initialZoom);
+
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap', maxZoom: 19
+  attribution: '© OpenStreetMap',
+  maxZoom: 19
 }).addTo(map);
 
-if (userLocation) {
-  L.marker([userLocation.latitude, userLocation.longitude])
+// ✅ Marker utilisateur sécurisé + centrage
+if (userLocation && userLocation.latitude && userLocation.longitude) {
+  var marker = L.marker([userLocation.latitude, userLocation.longitude])
     .bindPopup('Votre position')
     .addTo(map);
+
+  marker.openPopup();
+  map.setView([userLocation.latitude, userLocation.longitude], 12);
 }
 
 var trips = ${JSON.stringify(trips || [])};
@@ -56,7 +65,8 @@ Object.keys(cities).forEach(function(cityName) {
     .bindPopup(cityName)
     .on('click', function() {
       window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'selectCity', city: cityName
+        type: 'selectCity',
+        city: cityName
       }));
     })
     .addTo(map);
@@ -70,22 +80,42 @@ export default function MapScreen() {
   const navigation = useNavigation();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [geoReady, setGeoReady] = useState(false);
   const [selectedCity, setSelectedCity] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
 
   useEffect(() => {
-    Geolocation.requestAuthorization(); // gère les permissions automatiquement
-    Geolocation.getCurrentPosition(
-      (position) => {
-        setUserLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-      },
-      (error) => console.log(error),
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: 10000 }
-    );
+    const loadLocation = async () => {
+      try {
+        const hasPermission = await requestLocationPermission();
+        if (!hasPermission) {
+          setGeoReady(true);
+          return;
+        }
+
+        Geolocation.getCurrentPosition(
+          (position) => {
+            console.log("USER LOCATION RN:", position.coords); // ✅ debug
+            setUserLocation({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            });
+            setGeoReady(true);
+          },
+          (error) => {
+            console.log('Erreur geolocalisation:', error);
+            setGeoReady(true);
+          },
+          { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+        );
+      } catch (error) {
+        console.log('Erreur permission geolocalisation:', error);
+        setGeoReady(true);
+      }
+    };
+
+    loadLocation();
   }, []);
 
   useFocusEffect(
@@ -119,6 +149,8 @@ export default function MapScreen() {
     }
   };
 
+  const mapHtml = useMemo(() => getMapHTML(trips, userLocation), [trips, userLocation]);
+
   const filteredTrips = useMemo(() => {
     if (!selectedCity) return [];
     return trips.filter(trip =>
@@ -143,7 +175,7 @@ export default function MapScreen() {
 
   return (
     <View style={styles.container}>
-      {loading ? (
+      {loading || !geoReady ? (
         <View style={styles.loader}>
           <ActivityIndicator size="large" color="#007AFF" />
           <Text style={styles.loaderText}>Chargement de la carte...</Text>
@@ -151,7 +183,13 @@ export default function MapScreen() {
       ) : (
         <>
           <WebView
-            source={{ html: getMapHTML(trips, userLocation) }}
+            // ✅ FIX PRINCIPAL ICI
+            key={
+              userLocation
+                ? `${userLocation.latitude}-${userLocation.longitude}`
+                : 'no-location'
+            }
+            source={{ html: mapHtml }}
             style={styles.webview}
             onMessage={handleWebViewMessage}
             javaScriptEnabled
